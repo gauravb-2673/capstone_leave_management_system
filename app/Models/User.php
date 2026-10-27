@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -15,7 +14,10 @@ class User extends Authenticatable
     use HasFactory, Notifiable;
 
     /**
-     * The attributes that are mass assignable.
+     * Attributes that can be assigned through mass assignment.
+     *
+     * Keep role out of this list so an ordinary registration
+     * request cannot assign itself the admin role.
      *
      * @var list<string>
      */
@@ -26,7 +28,7 @@ class User extends Authenticatable
     ];
 
     /**
-     * The attributes that should be hidden for serialization.
+     * Attributes hidden from serialized output.
      *
      * @var list<string>
      */
@@ -36,9 +38,7 @@ class User extends Authenticatable
     ];
 
     /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
+     * Attribute casting rules.
      */
     protected function casts(): array
     {
@@ -54,5 +54,29 @@ class User extends Authenticatable
     public function employee(): HasOne
     {
         return $this->hasOne(Employee::class);
+    }
+
+    /**
+     * Check whether the user is an administrator.
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
+    /**
+     * Check whether the user is an approver.
+     */
+    public function isApprover(): bool
+    {
+        return $this->role === 'approver';
+    }
+
+    /**
+     * Check whether the user is an employee.
+     */
+    public function isEmployee(): bool
+    {
+        return $this->role === 'employee';
     }
 }

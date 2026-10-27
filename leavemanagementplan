@@ -1,0 +1,509 @@
+# Leave Management System — Final Database Schema and Build Plan
+
+## 1. Project Scope
+
+Build a Laravel Leave Management System that manages:
+
+- Leave types and eligibility rules.
+- Employee leave applications.
+- Multiple approvers.
+- Approval and rejection workflows.
+- Anniversary-based leave allocations.
+- Leave balances and special grants.
+- Attendance and company holidays.
+- Automatic annual allocations through scheduled tasks.
+- Role-based access for employees, HR, and administrators.
+- Validation, transactions, audit history, and testing.
+
+The implementation will follow this order:
+
+1. Database design and migrations.
+2. Models and Eloquent relationships.
+3. Seeders and test data.
+4. Leave allocation and balance calculations.
+5. Leave applications and validation.
+6. Approvals and rejection workflows.
+7. Attendance and holidays.
+8. Authorization and user interface.
+9. Scheduled allocations.
+10. Automated tests and documentation.
+
+---
+
+## 2. Leave Types
+
+The `leavetypes` table will contain:
+
+| Code | Leave type | Purpose |
+|---|---|---|
+| PL | Privilege Leave | Paid leave |
+| SL | Sick Leave | Paid sick leave |
+| CL | Casual Leave | Paid casual leave |
+| WFH | Work From Home | Eligibility-based allocation |
+| OT | Outdoor | Eligibility-based allocation |
+| LWP | Leave Without Pay | Unpaid leave |
+| MT | Maternity | Eligibility-based leave |
+| PT | Paternity | Eligibility-based leave |
+
+Attendance statuses are managed separately:
+
+| Code | Status |
+|---|---|
+| P | Present |
+| A | Absent |
+| WO | Week Off |
+| HO | Holiday |
+
+The `attendancestatuses` table describes attendance status. The `leavetypes` table identifies the leave type.
+
+A public holiday is maintained in the company-wide holiday calendar. If a public holiday falls on an employee's weekly off, the attendance status is WO.
+
+WFH and OT remain in the leave-type master because they use the application and approval mechanism.
+
+---
+
+## 3. Durations
+
+The `durations` table will contain:
+
+- Half Day
+- Full Day
+- Multiple Days
+
+Rules:
+
+- Half-day leave deducts 0.5 day.
+- Half-day leave applies to one date only.
+- Half-day leave cannot be combined with a multiple-day application.
+- Weekly offs and public holidays are excluded from leave deduction.
+- Attendance must support a half-day leave without creating duplicate employee/date attendance records.
+
+---
+
+## 4. Database Tables
+
+### 4.1 `leavetypes`
+
+Stores the available leave types.
+
+Columns:
+
+- `leave_type_id` — primary key
+- `leave_type_code` — unique
+- `leave_type_name`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### 4.2 `durations`
+
+Stores leave durations.
+
+Columns:
+
+- `duration_id` — primary key
+- `duration_desc` — unique
+- `created_at`
+- `updated_at`
+
+### 4.3 `leaveapplications`
+
+Stores employee leave applications.
+
+Columns:
+
+- `leave_application_id` — primary key
+- `leave_application_user_id` — foreign key to `users.id`
+- `leave_type_id` — foreign key to `leavetypes`
+- `leave_from_date`
+- `leave_to_date`
+- `leavedeductcount` — calculated number of deductible days
+- `leavereason`
+- `duration_id` — foreign key to `durations`
+- `application_status` — Pending, Approved, Rejected, or Cancelled
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- An employee can have only one pending application at a time.
+- A pending application blocks a new application for every leave type.
+- Rejected or cancelled applications do not block new applications.
+- Approved applications do not block unrelated new applications, but overlapping approved leave dates are not allowed.
+- Employees can apply for past dates.
+- Applications are rejected when the employee lacks sufficient eligible leave.
+- Insufficient paid leave is not automatically converted to LWP.
+- `leavedeductcount` represents actual deductible days after excluding weekly offs and holidays.
+
+### 4.4 `leaveapprovermappings`
+
+Maps employees to their approvers.
+
+Columns:
+
+- `leave_approver_id` — primary key
+- `employee_user_id` — foreign key to `users.id`
+- `approver_user_id` — foreign key to `users.id`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- An employee can have multiple approvers.
+- Duplicate employee/approver pairs are not allowed.
+- Either assigned approver can make the final decision.
+
+### 4.5 `leaveapplicationapprovals`
+
+Tracks the approval task for each approver.
+
+Columns:
+
+- `leave_application_approval_id` — primary key
+- `leave_application_id` — foreign key to `leaveapplications`
+- `leave_approver_id` — foreign key to `leaveapprovermappings`
+- `leaveapplicationstatus` — Pending, Approved, Rejected, or No Longer Required
+- `leave_approve_rejection_reason` — nullable text
+- `decided_at` — nullable timestamp
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- The first approver to approve or reject determines the application's final outcome.
+- Other pending approval tasks become No Longer Required.
+- An approver cannot make a decision after another approver has finalized the application.
+- A rejection reason is mandatory.
+- Employees can cancel their own pending applications.
+- Cancellation is retained in history, and pending approval tasks become No Longer Required.
+- Approved or rejected decisions cannot be reversed by approvers. Administrative corrections are handled separately.
+
+### 4.6 `attendancestatuses`
+
+Stores attendance statuses.
+
+Columns:
+
+- `attendance_status_id` — primary key
+- `attendance_status_code` — unique
+- `attendance_status_name`
+- `created_at`
+- `updated_at`
+
+Seed it with P, A, WO, and HO.
+
+### 4.7 `holidays`
+
+Stores the company-wide holiday calendar.
+
+Columns:
+
+- `holiday_id` — primary key
+- `holiday_name`
+- `holiday_date`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- All employees use the same holiday calendar.
+- Holidays do not count toward leave deduction.
+- If a holiday falls on an employee's weekly off, WO takes precedence in attendance.
+
+### 4.8 `attendances`
+
+Stores attendance for each employee and date.
+
+Columns:
+
+- `attendance_id` — primary key
+- `user_id` — foreign key to `users.id`
+- `attendance_date`
+- `attendance_status_id` — nullable foreign key to `attendancestatuses`
+- `leave_type_id` — nullable foreign key to `leavetypes`
+- `duration_id` — nullable foreign key to `durations`
+- `submitted_by_user_id` — nullable foreign key to `users.id`, identifying the HR/admin submitter
+- `logintime` — nullable
+- `logouttime` — nullable
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- HR and administrators can submit attendance for all employees.
+- Attendance is not automatically marked absent.
+- The attendance form loads employees for a selected date.
+- Approved leave is reflected automatically in attendance.
+- Pending or rejected applications are not treated as approved leave.
+- HR/admin can mark employees Present or Absent when there is no applicable approved leave.
+- Use a unique constraint on `(user_id, attendance_date)` so an employee has only one attendance record per date.
+- Half-day leave must be represented consistently within that single daily record.
+
+### 4.9 `leavebalances`
+
+Stores the leave allocated to an employee and the remaining balance.
+
+Columns:
+
+- `leave_balance_id` — primary key
+- `user_id` — foreign key to `users.id`
+- `leave_type_id` — foreign key to `leavetypes`
+- `leave_opening_balance`
+- `leave_allocated`
+- `leave_carried_forward`
+- `leave_closing_balance`
+- `period_start_date`
+- `period_end_date`
+- `year`
+- `first_time_grant`
+- `valid_until` — nullable expiry date
+- `allocation_source` — annual allocation, eligibility rule, or administrator grant
+- `rule_id` — nullable foreign key to the allocation-rule table
+- `granted_by_user_id` — nullable foreign key to `users.id`
+- `created_at`
+- `updated_at`
+
+**How balance records work:**
+
+For example, an employee may receive 12 CL days through annual allocation and later receive an additional 3 CL days from an administrator for a special situation. If the special grant has its own expiry date, the system must track it separately from the annual allocation.
+
+The application will manage these records. Users will not manually create or maintain balance rows.
+
+Balance calculations must not double-count carry-forward days. The opening balance will have a clearly defined meaning, and every approved deduction will be recorded against the correct allocation period or grant.
+
+### 4.10 `leave_type_application_rules`
+
+Stores reusable eligibility and allocation rules.
+
+Columns:
+
+- `rule_id` — primary key
+- `leave_type_id` — foreign key to `leavetypes`
+- `rule_name`
+- `is_active`
+- `minimum_service_years` — nullable
+- `grant_amount`
+- `grant_frequency`
+- `validity_days` — nullable
+- `created_at`
+- `updated_at`
+
+Examples:
+
+- Grant 5 WFH days annually after completing 6 years of service.
+- Define eligibility-based allocations for other leave types.
+- Allow administrators to configure additional rules.
+
+Rules:
+
+- Global rule changes apply to future allocations, not previously granted balances.
+- Actual allocations are stored in `leavebalances`.
+- Special administrator grants can have their own fixed expiry date.
+- Multiple rules for a leave type are allowed; administrators are responsible for configuring appropriate rules.
+- Scheduled allocation must avoid granting the same allocation twice for the same qualifying period.
+
+---
+
+## 5. Leave Allocation Policies
+
+### 5.1 Anniversary-Based Allocation
+
+Allocation periods follow each employee's service anniversary, not the calendar year.
+
+Example: If an employee's allocation period starts on 15 August, the next allocation period starts on the following 15 August.
+
+When leave spans a period boundary, deductions are assigned to the appropriate period according to the dates of leave.
+
+### 5.2 CL — Casual Leave
+
+- Annual allocation: 12 days.
+- First allocation: after completing one year of service.
+- No allocation on the joining date.
+- Carry-forward: maximum 5 unused days from the previous period.
+- Only CL carries forward.
+- Carried-forward days must not be counted twice.
+
+### 5.3 SL — Sick Leave
+
+- Annual allocation: 6 days.
+- First allocation: after completing one year of service.
+- No allocation on the joining date.
+- No carry-forward.
+
+### 5.4 LWP — Leave Without Pay
+
+- First-year limit: 12 days.
+- Subsequent limit: 12 days per year.
+- LWP is unpaid and does not deduct from paid-leave balances.
+- Count LWP usage only after approval.
+- Enforce the applicable yearly limit during application validation and approval.
+- If no leave is applied for, HR/admin determines attendance through the normal attendance process; the system does not automatically mark the employee absent.
+
+### 5.5 WFH
+
+- Grant 5 days annually after completing 6 years of service.
+- The grant recurs each year after eligibility is reached.
+- Unused WFH days do not carry forward.
+- Each allocation has a fixed expiry date.
+- A global rule change affects future allocations only.
+
+### 5.6 Other Leave Types and Special Grants
+
+MT, PT, OT, and PL use the configured eligibility/allocation rules applicable to them.
+
+Administrators can grant additional leave for exceptional situations, such as accidents or emergencies. These grants must record the amount, grant source, administrator, and expiry date where applicable.
+
+LWP remains unpaid; it is not a paid-leave balance.
+
+---
+
+## 6. Approval and Deduction Workflow
+
+### Submission
+
+1. Validate the requested dates and duration.
+2. Check the one-pending-application rule.
+3. Reject overlapping approved leave dates.
+4. Calculate deductible days, excluding weekly offs and holidays.
+5. Validate eligibility and available balance or applicable LWP limit.
+6. Save the application as Pending.
+7. Create approval tasks for the assigned approvers.
+
+Do not deduct paid leave at submission time.
+
+### Approval
+
+1. Verify that the application is still Pending.
+2. Verify that the approver is authorized to act.
+3. Revalidate relevant balance and date constraints.
+4. Approve the application.
+5. Deduct the appropriate balance or record approved LWP usage.
+6. Update attendance for the affected dates.
+7. Mark other pending approval tasks No Longer Required.
+8. Commit all related changes in one database transaction.
+
+If any required operation fails, the transaction must roll back so the application, balance, and attendance do not become inconsistent.
+
+### Rejection
+
+1. Require a rejection reason.
+2. Set the application status to Rejected.
+3. Record the approver's decision and timestamp.
+4. Mark other pending approval tasks No Longer Required.
+5. Do not deduct balances or update attendance as approved leave.
+
+### Cancellation
+
+**Pending application:**
+
+- The employee can cancel their own pending application.
+- Keep the application in history with status Cancelled.
+- Mark outstanding approval tasks No Longer Required.
+- Do not change balances or attendance.
+
+**Approved application:**
+
+- The employee cannot cancel it directly.
+- An administrator may cancel it.
+- Restore deductions to the correct allocation period or grant.
+- Update attendance accordingly.
+- Preserve the application and audit history.
+
+---
+
+## 7. Inactive Employees
+
+When an employee becomes inactive:
+
+- Reject all their pending leave applications automatically.
+- Record the reason for rejection.
+- Do not create new annual or eligibility-based allocations.
+- Preserve existing balances and historical records.
+- Do not automatically change previously approved leave unless an administrator explicitly acts.
+
+---
+
+## 8. Scheduled Tasks
+
+The application will use Laravel's scheduler for recurring allocation work.
+
+Scheduled allocation must:
+
+- Process eligible active employees.
+- Respect service anniversaries.
+- Catch up missed allocations when necessary.
+- Avoid duplicate grants for the same rule and qualifying period.
+- Apply carry-forward rules correctly.
+- Preserve expiry dates and allocation history.
+- Skip new allocations for inactive employees.
+- Leave pending applications unaffected by allocation processing.
+
+The scheduler must be configured in the deployment environment so scheduled tasks actually run.
+
+---
+
+## 9. Security and Authorization
+
+The system will distinguish employee, HR, approver, and administrator capabilities.
+
+- Employees submit and view their own applications.
+- Approvers act only on applications assigned to them.
+- HR/admin can manage attendance according to their permissions.
+- Administrators handle approved-leave corrections and special grants.
+- Direct URL requests must be authorized server-side.
+- Hiding a button in the UI is not a substitute for authorization.
+- Validate all incoming data using Laravel validation or Form Requests.
+- Use database transactions for operations that update applications, approvals, balances, and attendance together.
+
+---
+
+## 10. Testing and Completion Criteria
+
+We will test the project in stages.
+
+### Database
+
+- All migrations run successfully.
+- Foreign keys and unique constraints work.
+- Seeders can be rerun safely where appropriate.
+- `php artisan migrate:fresh --seed` succeeds in the development/test environment.
+
+### Allocation
+
+- CL and SL are not granted on joining.
+- First allocation occurs after one year.
+- CL carry-forward is capped at 5 days.
+- SL does not carry forward.
+- LWP limit is enforced.
+- WFH is allocated after 6 years according to its rule.
+- Expired grants cannot be used.
+- Scheduled allocations do not duplicate grants.
+
+### Applications and approvals
+
+- One pending application per employee.
+- Overlapping approved leave is rejected.
+- Insufficient balance is rejected.
+- Rejection requires a reason.
+- Only authorized approvers can decide.
+- The first decision finalizes the outcome.
+- Cancellation preserves history.
+
+### Attendance and consistency
+
+- Approved leave updates attendance.
+- Pending/rejected leave does not appear as approved leave.
+- Weekly offs and holidays are excluded from deductions.
+- Attendance is unique per employee/date.
+- Failed approval processing rolls back related changes.
+- Administrator cancellation restores the correct balance and attendance.
+
+### Project delivery
+
+- Models and relationships are documented.
+- Seed data supports testing.
+- Automated tests cover important rules.
+- README explains setup, migrations, seeders, scheduled tasks, and tests.
+- Changes are committed in small, task-focused commits.
