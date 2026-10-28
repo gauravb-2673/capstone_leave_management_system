@@ -1,59 +1,322 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+Capstone : Leave Management
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Whenever you want to allocate leave balances, run this command from your project directory:
+php artisan leave:allocate-balances
 
-## About Laravel
+Useful commands
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+1. Preview allocations without saving anything
+   php artisan leave:allocate-balances --dry-run
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+2. Allocate balances for a specific date
+   php artisan leave:allocate-balances --date=2026-10-28
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+3. Verify the scheduled tasks
+   php artisan schedule:list
 
-## Learning Laravel
+=============================================================================================================
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+| Functionality                                  | Existing implementation                          |
+| ---------------------------------------------- | ------------------------------------------------ |
+| Employee cancels their own pending application | `cancelPendingApplication()`                     |
+| Admin cancels an approved application          | `cancelApprovedApplication()`                    |
+| Refund paid leave to the original allocation   | `refundPaidLeave()`                              |
+| Prevent duplicate refunds                      | Checks `reverses_transaction_id`                 |
+| Record cancellation reason and timestamp       | Updates `cancellation_reason` and `cancelled_at` |
+| Skip paid-leave refunds for LWP                | Checks the leave type code                       |
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+=============================================================================================================
 
-## Laravel Sponsors
+1. Monthly Leave Transaction Report
+   | Excel column | What it tells the user |
+   |---|---|
+   | Employee Name | Who the transaction belongs to |
+   | Date of Joining | When the employee joined |
+   | Leave Type | Casual Leave, Sick Leave, etc. |
+   | Transaction Date | When the balance change was recorded |
+   | Transaction Type | Allocation, Deduction, Reversal, Carry Forward or Expiry |
+   | Days Added | Days credited to the balance |
+   | Days Deducted | Days removed from the balance |
+   | Balance After Transaction | Balance recorded after the transaction |
+   | Leave Start Date | Start of the related leave, if applicable |
+   | Leave End Date | End of the related leave, if applicable |
+   | Description | Explanation of the balance change |
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+    SELECT
+    u.name AS `Employee Name`,
+    e.joining_date AS `Date of Joining`,
+    lt.name AS `Leave Type`,
 
-### Premium Partners
+    lbt.created_at AS `Transaction Date`,
+    lbt.transaction_type AS `Transaction Type`,
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+    CASE
+    WHEN lbt.transaction_type IN (
+    'allocation',
+    'carry_forward',
+    'reversal'
+    )
+    THEN lbt.days
+    ELSE 0
+    END AS `Days Added`,
 
-## Contributing
+    CASE
+    WHEN lbt.transaction_type IN (
+    'deduction',
+    'carry_forward_out',
+    'expiry'
+    )
+    THEN lbt.days
+    ELSE 0
+    END AS `Days Deducted`,
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+    lbt.balance_after AS `Balance After Transaction`,
 
-## Code of Conduct
+    la.leave_from_date AS `Leave Start Date`,
+    la.leave_to_date AS `Leave End Date`,
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+    lbt.description AS `Description`
 
-## Security Vulnerabilities
+FROM leave_balance_transactions lbt
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+INNER JOIN leavebalances lb
+ON lbt.leave_balance_id = lb.id
 
-## License
+INNER JOIN employees e
+ON lb.employee_id = e.id
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+LEFT JOIN users u
+ON e.user_id = u.id
+
+INNER JOIN leavetypes lt
+ON lb.leave_type_id = lt.id
+
+LEFT JOIN leaveapplications la
+ON lbt.leave_application_id = la.id
+
+WHERE lbt.created_at >= '2026-10-01'
+AND lbt.created_at < '2026-11-01'
+
+ORDER BY
+u.name,
+lbt.created_at;
+
+2. Employee Leave Balance Report
+
+| Excel column    | What it tells the user        |
+| --------------- | ----------------------------- |
+| Employee Name   | Employee's name               |
+| Date of Joining | Employee's joining date       |
+| Leave Type      | Type of leave                 |
+| Allocation Type | Annual Leave or Carry Forward |
+| Allocated Days  | Days originally granted       |
+| Used Days       | Net balance consumed          |
+| Remaining Days  | Days currently available      |
+| Valid From      | Start of the balance period   |
+| Valid Until     | End of the balance period     |
+| Expiry Date     | Date the balance expires      |
+
+SELECT
+u.name AS `Employee Name`,
+e.joining_date AS `Date of Joining`,
+
+    lt.name AS `Leave Type`,
+    lb.allocation_type AS `Allocation Type`,
+
+    lb.allocated_days AS `Allocated Days`,
+
+    lb.allocated_days - lb.remaining_days
+        AS `Used Days`,
+
+    lb.remaining_days AS `Remaining Days`,
+
+    lb.period_start AS `Valid From`,
+    lb.period_end AS `Valid Until`,
+    lb.expires_at AS `Expiry Date`
+
+FROM leavebalances lb
+
+INNER JOIN employees e
+ON lb.employee_id = e.id
+
+LEFT JOIN users u
+ON e.user_id = u.id
+
+INNER JOIN leavetypes lt
+ON lb.leave_type_id = lt.id
+
+ORDER BY
+u.name,
+lt.name,
+lb.period_start;
+
+3. Monthly Leave Balance Summary
+
+| Excel column              | What it tells the user               |
+| ------------------------- | ------------------------------------ |
+| Employee Name             | Employee's name                      |
+| Date of Joining           | Employee's joining date              |
+| Leave Type                | Type of leave                        |
+| Leave Allocated           | Days allocated during the month      |
+| Carry Forward Received    | Days received from previous balances |
+| Carry Forward Transferred | Days moved out of previous balances  |
+| Leave Deducted            | Days deducted for leave              |
+| Leave Reversed            | Days restored                        |
+| Leave Expired             | Days that expired                    |
+| Net Balance Change        | Overall increase or decrease         |
+
+SELECT
+u.name AS `Employee Name`,
+e.joining_date AS `Date of Joining`,
+
+    lt.name AS `Leave Type`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'allocation'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Leave Allocated`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'carry_forward'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Carry Forward Received`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'carry_forward_out'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Carry Forward Transferred`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'deduction'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Leave Deducted`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'reversal'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Leave Reversed`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type = 'expiry'
+                THEN lbt.days
+            ELSE 0
+        END
+    ) AS `Leave Expired`,
+
+    SUM(
+        CASE
+            WHEN lbt.transaction_type IN (
+                'allocation',
+                'carry_forward',
+                'reversal'
+            )
+                THEN lbt.days
+
+            WHEN lbt.transaction_type IN (
+                'deduction',
+                'carry_forward_out',
+                'expiry'
+            )
+                THEN -lbt.days
+
+            ELSE 0
+        END
+    ) AS `Net Balance Change`
+
+FROM leave_balance_transactions lbt
+
+INNER JOIN leavebalances lb
+ON lbt.leave_balance_id = lb.id
+
+INNER JOIN employees e
+ON lb.employee_id = e.id
+
+LEFT JOIN users u
+ON e.user_id = u.id
+
+INNER JOIN leavetypes lt
+ON lb.leave_type_id = lt.id
+
+WHERE lbt.created_at >= '2026-10-01'
+AND lbt.created_at < '2026-11-01'
+
+GROUP BY
+e.id,
+u.name,
+e.joining_date,
+lt.id,
+lt.name
+
+ORDER BY
+u.name,
+lt.name;
+
+4. Monthly Employee Leave Register
+   | Excel column | What it tells the user |
+   |---|---|
+   | Employee Name | Employee's name |
+   | Date of Joining | Employee's joining date |
+   | Leave Type | Type of leave |
+   | Leave Start Date | First date of the leave |
+   | Leave End Date | Last date of the leave |
+   | Duration | Half Day, Full Day or Multiple Days |
+   | Leave Days | Recorded leave deduction count |
+   | Reason for Leave | Employee's stated reason |
+
+    SELECT
+    u.name AS `Employee Name`,
+    e.joining_date AS `Date of Joining`,
+
+    lt.name AS `Leave Type`,
+
+    la.leave_from_date AS `Leave Start Date`,
+    la.leave_to_date AS `Leave End Date`,
+
+    d.name AS `Duration`,
+
+    la.leavedeductcount AS `Leave Days`,
+    la.leavereason AS `Reason for Leave`
+
+FROM leaveapplications la
+
+INNER JOIN employees e
+ON la.employee_id = e.id
+
+LEFT JOIN users u
+ON e.user_id = u.id
+
+INNER JOIN leavetypes lt
+ON la.leave_type_id = lt.id
+
+LEFT JOIN durations d
+ON la.duration_id = d.id
+
+WHERE la.leave_from_date < '2026-11-01'
+AND la.leave_to_date >= '2026-10-01'
+
+AND EXISTS (
+SELECT 1
+FROM leaveapplicationapprovals laa
+WHERE laa.leave_application_id = la.id
+AND laa.status = 'approved'
+)
+
+ORDER BY
+u.name,
+la.leave_from_date;

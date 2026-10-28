@@ -271,6 +271,65 @@ class LwpEligibilityService
 
         return $usedDays;
     }
+    /**
+     * Get the remaining LWP allowance for the employee's service year
+     * containing the supplied date.
+     *
+     * This method does not create or modify leave records.
+     */
+    public function remainingForDate(
+        Employee $employee,
+        CarbonInterface|string $date
+    ): array {
+        $date = Carbon::parse($date)->startOfDay();
+
+        $joiningDate = Carbon::parse(
+            $employee->joining_date
+        )->startOfDay();
+
+        $serviceYearStart = ServiceYear::startDate(
+            $joiningDate,
+            $date
+        );
+
+        $serviceYearEnd = ServiceYear::endDate(
+            $joiningDate,
+            $date
+        );
+
+        $lwpType = LeaveType::query()
+            ->where('code', 'LWP')
+            ->where('is_active', true)
+            ->first();
+
+        if (! $lwpType) {
+            return [
+                'annual_limit' => 12.00,
+                'used_days' => 0.00,
+                'remaining_days' => 0.00,
+                'service_year_start' => $serviceYearStart->toDateString(),
+                'service_year_end' => $serviceYearEnd->toDateString(),
+            ];
+        }
+
+        $usedDays = $this->approvedLwpUsage(
+            $employee,
+            $lwpType->id,
+            $serviceYearStart,
+            $serviceYearEnd
+        );
+
+        return [
+            'annual_limit' => self::ANNUAL_LIMIT,
+            'used_days' => $usedDays,
+            'remaining_days' => max(
+                0,
+                self::ANNUAL_LIMIT - $usedDays
+            ),
+            'service_year_start' => $serviceYearStart->toDateString(),
+            'service_year_end' => $serviceYearEnd->toDateString(),
+        ];
+    }
 
     private function failure(string $message): array
     {

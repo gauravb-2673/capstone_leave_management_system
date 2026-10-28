@@ -4,6 +4,10 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Admin\LeaveApproverMappingController;
+use App\Http\Controllers\LeaveApplicationController;
+use App\Http\Controllers\LeaveApprovalController;
+use App\Services\Leave\LeaveCancellationService;
+use App\Http\Controllers\Reports\LeaveReportController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -14,10 +18,67 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    // Profile routes
+    Route::get('/profile', [ProfileController::class, 'edit'])
+        ->name('profile.edit');
+
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->name('profile.update');
+
+    Route::delete('/profile', [ProfileController::class, 'destroy'])
+        ->name('profile.destroy');
+
+
+
+
+
+    // Leave Application routes
+
+    // Display the logged-in employee's application history.
+    Route::get('/leave-applications', [
+        LeaveApplicationController::class,
+        'index',
+    ])->name('leave-applications.index');
+
+    // Display the leave application form.
+    Route::get('/leave-applications/create', [
+        LeaveApplicationController::class,
+        'create',
+    ])->name('leave-applications.create');
+
+    // Submit a new leave application.
+    Route::post('/leave-applications', [
+        LeaveApplicationController::class,
+        'store',
+    ])->name('leave-applications.store');
+
+    Route::post('/leave-applications/{leaveApplication}/cancel', [
+        LeaveApplicationController::class,
+        'cancel',
+    ])->name('leave-applications.cancel');
+
+
+
+
+
+
+    // Leave Approval routes
+    Route::get('/leave-approvals', [
+        LeaveApprovalController::class,
+        'index',
+    ])->name('leave-approvals.index');
+
+    Route::post('/leave-approvals/{approval}/approve', [
+        LeaveApprovalController::class,
+        'approve',
+    ])->name('leave-approvals.approve');
+
+    Route::post('/leave-approvals/{approval}/reject', [
+        LeaveApprovalController::class,
+        'reject',
+    ])->name('leave-approvals.reject');
 });
+
 
 Route::middleware(['auth', 'admin'])
     ->prefix('admin')
@@ -31,6 +92,7 @@ Route::middleware(['auth', 'admin'])
 
         Route::post('/employees', [EmployeeController::class, 'store'])
             ->name('employees.store');
+
         // Leave Approver Mapping Master
         Route::get('/leave-approver-mappings', [
             LeaveApproverMappingController::class,
@@ -63,7 +125,45 @@ Route::middleware(['auth', 'admin'])
         ])->name('leave-approver-mappings.toggle-status');
         Route::resource('holidays', \App\Http\Controllers\Admin\HolidayController::class)
             ->except(['show']);
+
+
+        // Admin Leave Application History
+        Route::get('/leave-applications', [
+            \App\Http\Controllers\Admin\LeaveApplicationHistoryController::class,
+            'index',
+        ])->name('leave-applications.index');
+        Route::post('/leave-applications/{leaveApplication}/cancel', [
+            \App\Http\Controllers\Admin\LeaveApplicationHistoryController::class,
+            'cancel',
+        ])->name('leave-applications.cancel');
     });
+
+
+
+
+
+
+// Leave Reports
+
+Route::get('/reports/leave/monthly-transactions', [
+    LeaveReportController::class,
+    'monthlyTransactions',
+])->name('reports.leave.monthly-transactions');
+
+Route::get('/reports/leave/employee-balances', [
+    LeaveReportController::class,
+    'employeeBalances',
+])->name('reports.leave.employee-balances');
+
+Route::get('/reports/leave/monthly-balance-summary', [
+    LeaveReportController::class,
+    'monthlyBalanceSummary',
+])->name('reports.leave.monthly-balance-summary');
+
+Route::get('/reports/leave/monthly-register', [
+    LeaveReportController::class,
+    'monthlyLeaveRegister',
+])->name('reports.leave.monthly-register');
 
 
 require __DIR__ . '/auth.php';

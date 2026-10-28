@@ -16,14 +16,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use App\Models\LeaveBalance;
+use App\Services\Leave\LeaveCancellationService;
 
 class LeaveApplicationController extends Controller
 {
     /**
      * Display the leave application form.
      */
-    public function create(Request $request): View|RedirectResponse
-    {
+    public function create(
+        Request $request,
+        LwpEligibilityService $lwpEligibilityService
+    ): View|RedirectResponse {
         $employee = $request->user()->employee;
 
         if (! $employee) {
@@ -45,9 +49,9 @@ class LeaveApplicationController extends Controller
         }
 
         /*
-         * Show active leave types that have a positive balance.
+         * Display active leave types that have a positive balance.
          *
-         * LWP is handled separately because it uses an annual
+         * LWP is included separately because it uses an annual
          * service-year limit rather than a leave-balance allocation.
          */
         $leaveTypes = LeaveType::query()
@@ -73,22 +77,82 @@ class LeaveApplicationController extends Controller
             ->get();
 
         /*
-         * The approval service requires the assigned approver
-         * to have the "approver" role.
+         * An active mapping is sufficient.
+         * The mapped user's role does not matter.
          */
         $hasApprover = LeaveApproverMapping::query()
             ->where('employee_id', $employee->id)
             ->where('is_active', true)
-            ->whereHas('approver', function ($query) {
-                $query->where('role', 'approver');
-            })
             ->exists();
+
+        // Get today's date for checking which allocations are currently valid.
+        $today = now()->toDateString();
+
+        /*
+ * LWP does not use leave_balances.
+ * Calculate its allowance from approved LWP applications
+ * for the employee's current service year.
+ */
+        $lwpBalance = $lwpEligibilityService->remainingForDate(
+            $employee,
+            $today
+        );
+
+        // Calculate the remaining balance for each leave type.
+        $remainingLeaveDays = LeaveBalance::query()
+            ->where('employee_id', $employee->id)
+            ->where('remaining_days', '>', 0)
+            ->where('period_start', '<=', $today)
+            ->where('period_end', '>=', $today)
+            ->where(function ($query) use ($today) {
+                $query->whereNull('expires_at')
+                    ->orWhereDate('expires_at', '>=', $today);
+            })
+            ->selectRaw('leave_type_id, SUM(remaining_days) as remaining_days')
+            ->groupBy('leave_type_id')
+            ->pluck('remaining_days', 'leave_type_id');
 
         return view('leave-applications.create', [
             'employee' => $employee,
             'leaveTypes' => $leaveTypes,
             'durations' => $durations,
             'hasApprover' => $hasApprover,
+            'remainingLeaveDays' => $remainingLeaveDays,
+            'lwpBalance' => $lwpBalance,
+        ]);
+    }
+    /**
+     * Display the logged-in employee's leave application history.
+     */
+    public function index(Request $request): View|RedirectResponse
+    {
+        // Find the employee profile linked to the logged-in user.
+        $employee = $request->user()->employee;
+
+        // Stop if this user does not have an employee profile.
+        if (! $employee) {
+            return redirect()
+                ->route('dashboard')
+                ->with(
+                    'error',
+                    'Your account is not linked to an employee profile.'
+                );
+        }
+
+        // Fetch only this employee's leave applications.
+        $applications = LeaveApplication::query()
+            ->where('employee_id', $employee->id)
+            ->with([
+                'leaveType',
+                'duration',
+                'approvals.approverMapping.approver',
+            ])
+            ->orderByDesc('created_at')
+            ->paginate(10);
+
+        // Display the application history page.
+        return view('leave-applications.index', [
+            'applications' => $applications,
         ]);
     }
 
@@ -102,8 +166,8 @@ class LeaveApplicationController extends Controller
         LwpEligibilityService $lwpEligibilityService
     ): RedirectResponse {
         /*
-         * Do not accept employee_id from the form.
-         * The employee is determined from the authenticated account.
+         * Never accept employee_id from the form.
+         * Determine the employee using the authenticated user.
          */
         $employee = $request->user()->employee;
 
@@ -125,6 +189,9 @@ class LeaveApplicationController extends Controller
                 );
         }
 
+        /*
+         * Validate the incoming form fields.
+         */
         $validated = $request->validate([
             'leave_type_id' => [
                 'required',
@@ -164,9 +231,9 @@ class LeaveApplicationController extends Controller
             $lwpEligibilityService
         ) {
             /*
-             * Lock the employee row while checking and creating
-             * the application. This helps prevent two simultaneous
-             * submissions from both passing the pending check.
+             * Lock the employee record while checking and creating
+             * the application to help prevent concurrent duplicate
+             * submissions.
              */
             $lockedEmployee = Employee::query()
                 ->whereKey($employee->id)
@@ -182,7 +249,7 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Only active leave types can be selected.
+             * The selected leave type must exist and be active.
              */
             $leaveType = LeaveType::query()
                 ->whereKey($validated['leave_type_id'])
@@ -198,8 +265,8 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Enforce the rule that an employee cannot have
-             * another pending leave application.
+             * An employee cannot submit another application while
+             * an existing application is pending.
              *
              * Rejected and cancelled applications do not block
              * a new application.
@@ -218,8 +285,8 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Validate the dates and duration using your existing
-             * service. It also calculates the number of days to deduct.
+             * Validate the dates and duration and calculate
+             * the requested leave deduction.
              */
             $leaveDetails = $leaveRequestValidator->validate(
                 $validated['leave_from_date'],
@@ -229,8 +296,7 @@ class LeaveApplicationController extends Controller
             );
 
             /*
-             * Prevent the requested dates from overlapping
-             * any existing approved leave.
+             * Prevent overlap with previously approved leave.
              */
             $hasApprovedOverlap = LeaveApplication::query()
                 ->where('employee_id', $lockedEmployee->id)
@@ -256,10 +322,10 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Check eligibility without deducting any balance.
+             * Check eligibility without deducting the balance.
              *
-             * LWP uses the service-year annual limit.
-             * Other leave types use their balance allocations.
+             * LWP uses the service-year limit.
+             * Other leave types use their leave-balance allocations.
              */
             if ($leaveType->code === 'LWP') {
                 $eligibility = $lwpEligibilityService->check(
@@ -287,15 +353,14 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Find active approver mappings whose users have
-             * the role required by LeaveApprovalService.
+             * Select every active mapping for this employee.
+             *
+             * No role check is performed. The active mapping
+             * determines who can approve the application.
              */
             $approverMappings = LeaveApproverMapping::query()
                 ->where('employee_id', $lockedEmployee->id)
                 ->where('is_active', true)
-                ->whereHas('approver', function ($query) {
-                    $query->where('role', 'approver');
-                })
                 ->get();
 
             if ($approverMappings->isEmpty()) {
@@ -307,8 +372,9 @@ class LeaveApplicationController extends Controller
             }
 
             /*
-             * Create the application as pending.
-             * No leave balance is deducted at this stage.
+             * Create the pending leave application.
+             *
+             * No balance is deducted during submission.
              */
             $application = LeaveApplication::query()->create([
                 'employee_id' => $lockedEmployee->id,
@@ -323,8 +389,7 @@ class LeaveApplicationController extends Controller
             ]);
 
             /*
-             * Create one pending approval task for each active,
-             * eligible approver mapping.
+             * Create a pending approval task for each active mapping.
              */
             foreach ($approverMappings as $mapping) {
                 LeaveApplicationApproval::query()->create([
@@ -340,6 +405,42 @@ class LeaveApplicationController extends Controller
             ->with(
                 'success',
                 'Your leave application has been submitted successfully.'
+            );
+    }
+
+    /**
+     * Cancel the logged-in employee's pending leave application.
+     */
+    public function cancel(
+        Request $request,
+        LeaveApplication $leaveApplication,
+        LeaveCancellationService $cancellationService
+    ): RedirectResponse {
+        // Validate the reason supplied by the employee.
+        $validated = $request->validate([
+            'cancellation_reason' => [
+                'required',
+                'string',
+                'max:1000',
+            ],
+        ]);
+
+        /*
+     * The service checks ownership and verifies that the
+     * application is still pending before cancelling it.
+     */
+        $cancellationService->cancel(
+            $leaveApplication,
+            $request->user(),
+            $validated['cancellation_reason']
+        );
+
+        // Return to the employee's application history.
+        return redirect()
+            ->route('leave-applications.index')
+            ->with(
+                'success',
+                'Your leave application has been cancelled successfully.'
             );
     }
 }

@@ -63,15 +63,9 @@ class LeaveApprovalService
                 ->firstOrFail();
 
             /*
-             * Verify the actor's role and assignment.
-             */
-            if ($actor->role !== 'approver') {
-                throw ValidationException::withMessages([
-                    'approval' => [
-                        'Only users with the approver role can approve leave.',
-                    ],
-                ]);
-            }
+ * Authorization is determined by the active approver mapping,
+ * not by the actor's application role.
+ */
 
             if (
                 ! $mapping->is_active
@@ -236,13 +230,6 @@ class LeaveApprovalService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($actor->role !== 'approver') {
-                throw ValidationException::withMessages([
-                    'approval' => [
-                        'Only users with the approver role can reject leave.',
-                    ],
-                ]);
-            }
 
             if (
                 ! $mapping->is_active
