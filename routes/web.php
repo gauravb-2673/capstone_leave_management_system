@@ -161,11 +161,13 @@ Route::middleware(['auth', 'admin'])
         ])->name('reports.leave.monthly-register');
     });
 
-// Special Leave Allocation: Admin and HR only.
+// Special Leave Allocation, Administration features, and Reports
+// accessible to both Admin and HR.
 Route::middleware(['auth', 'admin-or-hr'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
+        // Special Leave Allocations
         Route::get('/leave-allocations', [
             LeaveAllocationController::class,
             'index',
@@ -185,6 +187,27 @@ Route::middleware(['auth', 'admin-or-hr'])
             LeaveAllocationController::class,
             'destroy',
         ])->name('leave-allocations.destroy');
+
+        // Leave Reports
+        Route::get('/reports/leave/monthly-transactions', [
+            LeaveReportController::class,
+            'monthlyTransactions',
+        ])->name('reports.leave.monthly-transactions');
+
+        Route::get('/reports/leave/employee-balances', [
+            LeaveReportController::class,
+            'employeeBalances',
+        ])->name('reports.leave.employee-balances');
+
+        Route::get('/reports/leave/monthly-balance-summary', [
+            LeaveReportController::class,
+            'monthlyBalanceSummary',
+        ])->name('reports.leave.monthly-balance-summary');
+
+        Route::get('/reports/leave/monthly-register', [
+            LeaveReportController::class,
+            'monthlyLeaveRegister',
+        ])->name('reports.leave.monthly-register');
     });
 
 

@@ -67,7 +67,7 @@
             </section>
 
             {{-- Administration --}}
-            @if (auth()->user()->isAdmin())
+            @if (auth()->user()->isAdmin() || auth()->user()->role === 'hr')
                 <section class="overflow-hidden rounded-xl border border-indigo-200 bg-white shadow-sm">
                     <div class="border-b border-indigo-100 bg-indigo-50 px-6 py-4">
                         <h3 class="text-lg font-semibold text-indigo-900">
@@ -162,7 +162,8 @@
                 </section>
             @endif
             {{-- Reports --}}
-            @if (auth()->user()->isAdmin())
+            {{-- Administration --}}
+            @if (auth()->user()->isAdmin() || auth()->user()->role === 'hr')
                 <section class="overflow-hidden rounded-xl border border-purple-200 bg-white shadow-sm">
                     <div class="border-b border-purple-100 bg-purple-50 px-6 py-4">
                         <h3 class="text-lg font-semibold text-purple-900">
