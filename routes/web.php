@@ -8,6 +8,7 @@ use App\Http\Controllers\LeaveApplicationController;
 use App\Http\Controllers\LeaveApprovalController;
 use App\Services\Leave\LeaveCancellationService;
 use App\Http\Controllers\Reports\LeaveReportController;
+use App\Http\Controllers\Admin\LeaveAllocationController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -136,6 +137,54 @@ Route::middleware(['auth', 'admin'])
             \App\Http\Controllers\Admin\LeaveApplicationHistoryController::class,
             'cancel',
         ])->name('leave-applications.cancel');
+
+        // Leave Reports
+
+        Route::get('/reports/leave/monthly-transactions', [
+            LeaveReportController::class,
+            'monthlyTransactions',
+        ])->name('reports.leave.monthly-transactions');
+
+        Route::get('/reports/leave/employee-balances', [
+            LeaveReportController::class,
+            'employeeBalances',
+        ])->name('reports.leave.employee-balances');
+
+        Route::get('/reports/leave/monthly-balance-summary', [
+            LeaveReportController::class,
+            'monthlyBalanceSummary',
+        ])->name('reports.leave.monthly-balance-summary');
+
+        Route::get('/reports/leave/monthly-register', [
+            LeaveReportController::class,
+            'monthlyLeaveRegister',
+        ])->name('reports.leave.monthly-register');
+    });
+
+// Special Leave Allocation: Admin and HR only.
+Route::middleware(['auth', 'admin-or-hr'])
+    ->prefix('admin')
+    ->name('admin.')
+    ->group(function () {
+        Route::get('/leave-allocations', [
+            LeaveAllocationController::class,
+            'index',
+        ])->name('leave-allocations.index');
+
+        Route::get('/leave-allocations/create', [
+            LeaveAllocationController::class,
+            'create',
+        ])->name('leave-allocations.create');
+
+        Route::post('/leave-allocations', [
+            LeaveAllocationController::class,
+            'store',
+        ])->name('leave-allocations.store');
+
+        Route::delete('/leave-allocations/{leaveBalance}', [
+            LeaveAllocationController::class,
+            'destroy',
+        ])->name('leave-allocations.destroy');
     });
 
 
@@ -143,27 +192,6 @@ Route::middleware(['auth', 'admin'])
 
 
 
-// Leave Reports
-
-Route::get('/reports/leave/monthly-transactions', [
-    LeaveReportController::class,
-    'monthlyTransactions',
-])->name('reports.leave.monthly-transactions');
-
-Route::get('/reports/leave/employee-balances', [
-    LeaveReportController::class,
-    'employeeBalances',
-])->name('reports.leave.employee-balances');
-
-Route::get('/reports/leave/monthly-balance-summary', [
-    LeaveReportController::class,
-    'monthlyBalanceSummary',
-])->name('reports.leave.monthly-balance-summary');
-
-Route::get('/reports/leave/monthly-register', [
-    LeaveReportController::class,
-    'monthlyLeaveRegister',
-])->name('reports.leave.monthly-register');
 
 
 require __DIR__ . '/auth.php';

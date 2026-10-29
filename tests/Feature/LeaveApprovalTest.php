@@ -744,9 +744,11 @@ class LeaveApprovalTest extends TestCase
         ]);
     }
 
-    public function test_employee_cannot_approve_leave(): void
+
+    public function test_assigned_employee_can_approve_leave_without_approver_role(): void
     {
         $employeeUser = User::factory()->create();
+
         $employeeUser->forceFill([
             'role' => 'employee',
         ])->save();
@@ -771,6 +773,18 @@ class LeaveApprovalTest extends TestCase
             'name' => 'Multiple Days',
             'days' => 1.00,
         ]);
+        $balance = LeaveBalance::create([
+            'employee_id' => $leaveApplicantProfile->id,
+            'leave_type_id' => $leaveType->id,
+            'allocation_type' => 'annual',
+            'allocated_days' => 12.00,
+            'remaining_days' => 12.00,
+            'period_start' => '2026-01-15',
+            'period_end' => '2027-01-14',
+            'expires_at' => null,
+            'source_balance_id' => null,
+            'grant_key' => 'test:employee:EMP-AUTH-002:CL:2026',
+        ]);
 
         $application = LeaveApplication::create([
             'employee_id' => $leaveApplicantProfile->id,
@@ -784,8 +798,6 @@ class LeaveApprovalTest extends TestCase
             'status' => 'pending',
         ]);
 
-        // Deliberately assign the employee user to the approval task.
-        // The service must still reject them because of their role.
         $mapping = LeaveApproverMapping::create([
             'employee_id' => $leaveApplicantProfile->id,
             'approver_user_id' => $employeeUser->id,
@@ -800,33 +812,19 @@ class LeaveApprovalTest extends TestCase
             'decided_at' => null,
         ]);
 
-        try {
-            app(LeaveApprovalService::class)->approve(
-                $approval,
-                $employeeUser
-            );
-
-            $this->fail('An employee must not approve a leave application.');
-        } catch (ValidationException $exception) {
-            $this->assertArrayHasKey(
-                'approval',
-                $exception->errors()
-            );
-
-            $this->assertSame(
-                'Only users with the approver role can approve leave.',
-                $exception->errors()['approval'][0]
-            );
-        }
+        app(LeaveApprovalService::class)->approve(
+            $approval,
+            $employeeUser
+        );
 
         $this->assertDatabaseHas('leaveapplications', [
             'id' => $application->id,
-            'status' => 'pending',
+            'status' => 'approved',
         ]);
 
         $this->assertDatabaseHas('leaveapplicationapprovals', [
             'id' => $approval->id,
-            'status' => 'pending',
+            'status' => 'approved',
         ]);
     }
 }

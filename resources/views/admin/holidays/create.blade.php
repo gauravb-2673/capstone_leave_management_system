@@ -18,7 +18,8 @@
                         </label>
 
                         <input type="date" id="holiday_date" name="holiday_date" value="{{ old('holiday_date') }}"
-                            required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            min="{{ today()->toDateString() }}" required
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
 
                         @error('holiday_date')
                             <p class="mt-1 text-sm text-red-600">{{ $message }}</p>

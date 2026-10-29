@@ -26,9 +26,20 @@ class HolidayController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'holiday_date' => ['required', 'date', 'unique:holidays,holiday_date'],
-            'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
+            'holiday_date' => [
+                'required',
+                'date_format:Y-m-d',
+                'after_or_equal:today',
+            ],
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+            'description' => [
+                'nullable',
+                'string',
+            ],
         ]);
 
         Holiday::create($validated);

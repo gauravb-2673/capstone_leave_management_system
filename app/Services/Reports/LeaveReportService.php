@@ -78,18 +78,28 @@ class LeaveReportService
      *
      * Shows each saved allocation separately.
      */
-    public function employeeLeaveBalances(): Collection
-    {
+
+    public function employeeLeaveBalances(
+        ?int $employeeId = null,
+        ?int $leaveTypeId = null
+    ): Collection {
         return LeaveBalance::query()
             ->with([
                 'employee.user',
                 'leaveType',
             ])
+            ->when(
+                $employeeId !== null,
+                fn($query) => $query->where('employee_id', $employeeId)
+            )
+            ->when(
+                $leaveTypeId !== null,
+                fn($query) => $query->where('leave_type_id', $leaveTypeId)
+            )
             ->get()
             ->sortBy(function (LeaveBalance $balance) {
                 return strtolower(
-                    $balance->employee?->user?->name
-                        ?? 'Unknown Employee'
+                    $balance->employee?->user?->name ?? 'Unknown Employee'
                 ) . '|'
                     . strtolower($balance->leaveType?->name ?? '')
                     . '|'
@@ -115,6 +125,7 @@ class LeaveReportService
                 ];
             });
     }
+
 
     /**
      * Report 3: Monthly Leave Balance Summary.

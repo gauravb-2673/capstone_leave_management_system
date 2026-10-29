@@ -27,3 +27,8 @@ Schedule::command('leave:allocate-balances')
     ->dailyAt('00:05')
     ->timezone('Asia/Kolkata')
     ->withoutOverlapping();
+
+Schedule::command('leave:expire-special-allocations')
+    ->dailyAt('00:10')
+    ->timezone('Asia/Kolkata')
+    ->withoutOverlapping();
