@@ -6,7 +6,7 @@
             </h2>
 
             <a href="{{ route('admin.leave-approver-mappings.create') }}"
-               class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">
+                class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">
                 Assign Approver
             </a>
         </div>
@@ -77,18 +77,31 @@
                                     <td class="px-4 py-3">
                                         <div class="flex flex-wrap gap-3">
                                             <a href="{{ route('admin.leave-approver-mappings.edit', $mapping) }}"
-                                               class="text-indigo-600 hover:text-indigo-900">
+                                                class="text-indigo-600 hover:text-indigo-900">
                                                 Edit
                                             </a>
 
                                             <form method="POST"
-                                                  action="{{ route('admin.leave-approver-mappings.toggle-status', $mapping) }}">
+                                                action="{{ route('admin.leave-approver-mappings.toggle-status', $mapping) }}">
                                                 @csrf
                                                 @method('PATCH')
 
                                                 <button type="submit"
-                                                        class="{{ $mapping->is_active ? 'text-red-600' : 'text-green-600' }} hover:underline">
+                                                    class="{{ $mapping->is_active ? 'text-red-600' : 'text-green-600' }} hover:underline">
                                                     {{ $mapping->is_active ? 'Deactivate' : 'Activate' }}
+                                                </button>
+                                            </form>
+
+                                            <form method="POST"
+                                                action="{{ route('admin.leave-approver-mappings.destroy', $mapping) }}"
+                                                onsubmit="return confirm('Are you sure you want to permanently delete this approver mapping?');">
+
+                                                @csrf
+                                                @method('DELETE')
+
+                                                <button type="submit"
+                                                    class="px-3 py-1 bg-red-700 text-white rounded hover:bg-red-800 text-sm">
+                                                    Delete
                                                 </button>
                                             </form>
                                         </div>

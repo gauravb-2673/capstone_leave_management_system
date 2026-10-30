@@ -56,6 +56,8 @@ class LeaveApproverMappingController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+
+
         $validated = $request->validate([
             'employee_id' => [
                 'required',
@@ -74,6 +76,9 @@ class LeaveApproverMappingController extends Controller
                         'role',
                         ['admin', 'hr']
                     )),
+                Rule::notIn([
+                    Employee::whereKey($request->input('employee_id'))->value('user_id'),
+                ]),
                 Rule::unique(
                     'leaveapprovermappings',
                     'approver_user_id'
@@ -137,6 +142,9 @@ class LeaveApproverMappingController extends Controller
                         'role',
                         ['admin', 'hr']
                     )),
+                Rule::notIn([
+                    Employee::whereKey($request->input('employee_id'))->value('user_id'),
+                ]),
                 Rule::unique(
                     'leaveapprovermappings',
                     'approver_user_id'
@@ -171,6 +179,45 @@ class LeaveApproverMappingController extends Controller
             ->with(
                 'success',
                 'Approver mapping status updated successfully.'
+            );
+    }
+
+    /**
+     * Permanently delete an approver mapping.
+     */
+    /**
+     * Delete an unused mapping or deactivate a mapping with approval history.
+     */
+    public function destroy(
+        LeaveApproverMapping $leaveApproverMapping
+    ): RedirectResponse {
+
+        // Check whether this mapping has ever been used in an approval task.
+        $hasApprovalHistory = $leaveApproverMapping
+            ->approvalTasks()
+            ->exists();
+
+        if ($hasApprovalHistory) {
+            $leaveApproverMapping->update([
+                'is_active' => false,
+            ]);
+
+            return redirect()
+                ->route('admin.leave-approver-mappings.index')
+                ->with(
+                    'success',
+                    'This mapping has approval history and has been deactivated instead of deleted.'
+                );
+        }
+
+        // Permanently delete mappings that have never been used.
+        $leaveApproverMapping->delete();
+
+        return redirect()
+            ->route('admin.leave-approver-mappings.index')
+            ->with(
+                'success',
+                'Unused approver mapping deleted successfully.'
             );
     }
 }

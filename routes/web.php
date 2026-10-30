@@ -159,6 +159,20 @@ Route::middleware(['auth', 'admin'])
             LeaveReportController::class,
             'monthlyLeaveRegister',
         ])->name('reports.leave.monthly-register');
+
+
+
+
+
+        Route::patch(
+            '/leave-approver-mappings/{leaveApproverMapping}/toggle-status',
+            [LeaveApproverMappingController::class, 'toggleStatus']
+        )->name('leave-approver-mappings.toggle-status');
+
+        Route::delete(
+            '/leave-approver-mappings/{leaveApproverMapping}',
+            [LeaveApproverMappingController::class, 'destroy']
+        )->name('leave-approver-mappings.destroy');
     });
 
 // Special Leave Allocation, Administration features, and Reports
